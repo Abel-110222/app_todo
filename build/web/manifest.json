@@ -1,0 +1,22 @@
+{
+    "name": "Flutter PWA TO DO",
+    "short_name": "TO DO",
+    "start_url": "./index.html",
+    "display": "standalone",
+    "background_color": "#0175C2",
+    "theme_color": "#0175C2",
+    "description": "A Flutter PWA TO DO application.",
+    "orientation": "portrait-primary",
+    "icons": [
+    {
+      "src": "icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+    ]
+   }
