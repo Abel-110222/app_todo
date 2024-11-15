@@ -160,7 +160,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
                   controller: titleController,
                   validator: (value) {
                     if (value!.isEmpty) {
-                      return 'El título es obligatorio';
+                      return 'El título es obligatorio para la tarea';
                     }
                     return null;
                   },
@@ -228,7 +228,6 @@ class _TodoListScreenState extends State<TodoListScreen> {
       },
     );
   }
-
 // Guarda la tarea localmente cuando no hay internet
   Future<void> _saveTodoTemporarily(Todo todo) async {
     final prefs = await SharedPreferences.getInstance();
@@ -255,9 +254,8 @@ class _TodoListScreenState extends State<TodoListScreen> {
           todosJson.remove(todoJson);
           await prefs.setStringList('offlineTodos', todosJson);
         } catch (e) {
-          if (kDebugMode) {
-            print('Error sincronizando tarea: $e');
-          }
+          // Si ocurre un error, ignora la tarea
+          
         }
       }
     }
@@ -284,7 +282,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
           children: [
             const SizedBox(width: 30),
             Text(
-              'TO DO - PWA',
+              'TO DO - PWA v3',
               style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
             ),
             Spacer(),
