@@ -76610,7 +76610,7 @@ throw A.e(new A.Kz(m,b,new A.ti(o,d,n)))},
 IV(a){this.acK(0,"expected "+a+".",0,this.c)}}
 A.I2.prototype={
 J(a){var s=null,r=t.rc
-return new A.x1(B.R2,"To-Do App",A.rG(B.a5,new A.pE(s,new A.bG(B.cW,r),new A.bG(B.j,r),s,s,s,s,s,s),s,B.cW,B.cW,s,A.at_(A.aV())),s)}}
+return new A.x1(B.R2,"To-Do App v2",A.rG(B.a5,new A.pE(s,new A.bG(B.cW,r),new A.bG(B.j,r),s,s,s,s,s,s),s,B.cW,B.cW,s,A.at_(A.aV())),s)}}
 A.cZ.prototype={
 jF(){var s=this
 return A.aC(["id",s.a,"title",s.b,"description",s.c,"completed",s.d],t.N,t.z)}}

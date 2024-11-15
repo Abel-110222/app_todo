@@ -142,7 +142,7 @@ void _showAddTodoDialog(Todo? todo) {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
+              Text( 
                 todo == null ? 'Nueva Tarea' : 'Editar Tarea',
                 style: const TextStyle(
                     fontSize: 20, fontWeight: FontWeight.bold), // Título más grande

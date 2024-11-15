@@ -12,7 +12,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'To-Do App',
+      title: 'To-Do App v2',
       theme: ThemeData(
         brightness: Brightness.dark, // O Brightness.light para modo claro
         primarySwatch: Colors.blue,
