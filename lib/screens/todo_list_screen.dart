@@ -36,6 +36,7 @@ Future<void> _checkInternetConnection() async {
   var connectivityResult = await (Connectivity().checkConnectivity());
   setState(() {
     isInternetAvailable = connectivityResult != ConnectivityResult.none;
+
   });
 
   if (isInternetAvailable) {
