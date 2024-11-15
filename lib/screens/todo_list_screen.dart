@@ -1,9 +1,14 @@
 // ignore_for_file: prefer_const_literals_to_create_immutables, library_private_types_in_public_api, use_build_context_synchronously
 
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:responsive_grid/responsive_grid.dart';
 import 'package:todo_flutter_pwa/servies/api_service.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/status.dart' as status;
+
 import '../models/todo.dart';
 import '../widgets/todo_item.dart';
 
@@ -21,10 +26,44 @@ class _TodoListScreenState extends State<TodoListScreen> {
   bool isLoading = true; // Para controlar el estado de carga
   String filterValue = 'all'; // Valor por defecto del filtro
 
+  late WebSocketChannel channel; // Canal de WebSocket
+
   @override
   void initState() {
     super.initState();
     _loadTodos();
+
+    // Inicializa el canal WebSocket
+    channel = WebSocketChannel.connect(
+      Uri.parse(
+          'wss://apitodo-production-4845.up.railway.app/todo_updates'), // URL del servidor WebSocket
+    );
+
+    channel.stream.listen(
+      (message) {
+        _handleWebSocketMessage(message);
+      },
+      onError: (error) {
+        // Handle error and possibly retry connection
+        if (kDebugMode) {
+          print('WebSocket error: $error');
+        }
+      },
+      onDone: () {
+        // Handle when the WebSocket connection is closed
+        if (kDebugMode) {
+          print('WebSocket connection closed, attempting reconnection...');
+        }
+        // Optionally, add a reconnection attempt logic here
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    // Cierra el canal cuando el widget se destruye
+    channel.sink.close(status.goingAway);
+    super.dispose();
   }
 
   Future<void> _loadTodos() async {
@@ -43,6 +82,36 @@ class _TodoListScreenState extends State<TodoListScreen> {
     } catch (e) {
       setState(() {
         isLoading = false; // En caso de error, finaliza la carga
+      });
+    }
+  }
+
+  void _handleWebSocketMessage(String message) {
+    // Parsear el mensaje del WebSocket (dependiendo del formato, aquí se asume que es JSON)
+    final Map<String, dynamic> data = jsonDecode(message);
+
+    // Verificar si el mensaje es sobre una tarea nueva, actualizada o eliminada
+    if (data['action'] == 'add') {
+      // Si es una tarea nueva, agregarla
+      setState(() {
+        todos.add(Todo.fromJson(data['todo']));
+        _filterTodos();
+      });
+    } else if (data['action'] == 'update') {
+      // Si es una tarea actualizada, actualizar el estado de la tarea
+      setState(() {
+        Todo updatedTodo = Todo.fromJson(data['todo']);
+        int index = todos.indexWhere((todo) => todo.id == updatedTodo.id);
+        if (index != -1) {
+          todos[index] = updatedTodo;
+          _filterTodos();
+        }
+      });
+    } else if (data['action'] == 'delete') {
+      // Si es una tarea eliminada, eliminarla de la lista
+      setState(() {
+        todos.removeWhere((todo) => todo.id == data['id']);
+        _filterTodos();
       });
     }
   }
@@ -234,66 +303,54 @@ class _TodoListScreenState extends State<TodoListScreen> {
                                 });
                               },
                             ),
-                            ElevatedButton(
-                              clipBehavior: Clip.antiAlias,
-                              style: const ButtonStyle(
-                                foregroundColor: WidgetStatePropertyAll<Color>(Colors.white),
-                                // Estilo del botón
-                                backgroundColor: WidgetStatePropertyAll<Color>(Colors.blueAccent),
-                              ),
+                            ElevatedButton.icon(
                               onPressed: () {
-                                _showAddTodoDialog(null);
+                                _showAddTodoDialog(null); // Abre el diálogo para añadir todo
                               },
-                              // Muestra el diaño para agregar una nueva tarea
-                              child: const Text('Add New Task'),
-                            )
+                              style: ElevatedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                backgroundColor: Colors.blueAccent,
+                              ),
+                              icon: const Icon(Icons.add),
+                              label: const Text('Agregar Tarea'),
+                            ),
                           ],
                         ),
                       ),
                     ),
                     Expanded(
-                      // Asegura que la lista ocupe el espacio disponible
-                      child: ListView(
-                        children: [
-                          ResponsiveGridRow(
-                            rowSegments: 12,
-                            children: filteredTodos.asMap().entries.map((entry) {
-                              final index = entry.key; // Obtiene el índice
-                              final todo = entry.value; // Obtiene el elemento de todo
+                      child: Padding(
+                        padding: const EdgeInsets.all(15),
+                        child: ResponsiveGridList(
+                          desiredItemWidth: 350,
+                          minSpacing: 10,
+                          children: filteredTodos.asMap().entries.map((entry) {
+                            int index = entry.key; // Índice de la lista filtrada
+                            Todo todo = entry.value; // El elemento actual (todo)
 
-                              return ResponsiveGridCol(
-                                xs: 12,
-                                xl: 4,
-                                md: 6,
-                                lg: 6,
-                                child: GestureDetector(
-                                  onDoubleTap: () => _showAddTodoDialog(
-                                      todo), // Muestra los detalles al hacer doble clic
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(20),
-                                    child: TodoItem(
-                                      todo: todo,
-                                      onDelete: () =>
-                                          _deleteTodo(todo.id), // Llama a la función de eliminación
-                                      onUpdate: (value) {
-                                        // Crea una nueva instancia de Todo con el estado actualizado
-                                        setState(() {
-                                          todos[index] = Todo(
-                                            id: todo.id,
-                                            title: todo.title,
-                                            description: todo.description,
-                                            completed: value, // Cambiar el estado
-                                          );
-                                          _filterTodos(); // Refiltra después de actualizar
-                                        });
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ],
+                            return TodoItem(
+                              todo: todo,
+                              onDelete: () =>
+                                  _deleteTodo(todo.id), // Llama a la función de eliminación
+                              onUpdate: (value) {
+                                setState(() {
+                                  // Encuentra el índice del todo en la lista completa 'todos'
+                                  int originalIndex = todos.indexWhere((t) => t.id == todo.id);
+
+                                  // Crea una nueva instancia de Todo con el estado actualizado
+                                  todos[originalIndex] = Todo(
+                                    id: todo.id,
+                                    title: todo.title,
+                                    description: todo.description,
+                                    completed: value, // Cambiar el estado
+                                  );
+
+                                  _filterTodos(); // Refiltra después de actualizar
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
                       ),
                     ),
                   ],
