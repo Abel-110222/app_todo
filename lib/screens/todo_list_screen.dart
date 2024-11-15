@@ -5,10 +5,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:responsive_grid/responsive_grid.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:todo_flutter_pwa/servies/api_service.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/status.dart' as status;
-
+import 'package:connectivity_plus/connectivity_plus.dart'; // Paquete para verificar la conectividad
 import '../models/todo.dart';
 import '../widgets/todo_item.dart';
 
@@ -25,48 +24,41 @@ class _TodoListScreenState extends State<TodoListScreen> {
   List<Todo> filteredTodos = [];
   bool isLoading = true; // Para controlar el estado de carga
   String filterValue = 'all'; // Valor por defecto del filtro
-
-  late WebSocketChannel channel; // Canal de WebSocket
+  bool isInternetAvailable = true;
 
   @override
   void initState() {
     super.initState();
-    _loadTodos();
-
-    // Inicializa el canal WebSocket
-    channel = WebSocketChannel.connect(
-      Uri.parse(
-          'wss://apitodo-production-4845.up.railway.app/todo_updates'), // URL del servidor WebSocket
-    );
-
-    channel.stream.listen(
-      (message) {
-        _handleWebSocketMessage(message);
-      },
-      onError: (error) {
-        // Handle error and possibly retry connection
-        if (kDebugMode) {
-          print('WebSocket error: $error');
-        }
-      },
-      onDone: () {
-        // Handle when the WebSocket connection is closed
-        if (kDebugMode) {
-          print('WebSocket connection closed, attempting reconnection...');
-        }
-        // Optionally, add a reconnection attempt logic here
-      },
-    );
+    _checkInternetConnection(); // Verificar la conectividad
   }
 
-  @override
-  void dispose() {
-    // Cierra el canal cuando el widget se destruye
-    channel.sink.close(status.goingAway);
-    super.dispose();
+Future<void> _checkInternetConnection() async {
+  var connectivityResult = await (Connectivity().checkConnectivity());
+  setState(() {
+    isInternetAvailable = connectivityResult != ConnectivityResult.none;
+  });
+
+  if (isInternetAvailable) {
+    // Si hay conexión a internet, sincroniza las tareas pendientes
+    await _syncOfflineTodos();
   }
+
+  _loadTodos(); // Cargar todos (de caché o desde la API)
+}
+
 
   Future<void> _loadTodos() async {
+    if (!isInternetAvailable) {
+      // Si no hay internet, cargamos los todos desde el caché (puedes implementar tu propia lógica de cacheo)
+      final cachedTodos = await _getCachedTodos();
+      setState(() {
+        todos = cachedTodos;
+        filteredTodos = todos;
+        isLoading = false;
+      });
+      return;
+    }
+
     setState(() {
       isLoading = true; // Inicia la carga
     });
@@ -78,7 +70,8 @@ class _TodoListScreenState extends State<TodoListScreen> {
         filteredTodos = todos; // Inicialmente muestra todos los todos
         isLoading = false; // Finaliza la carga
       });
-      _filterTodos();
+      // Guardamos los todos en caché después de obtenerlos del servidor
+      _cacheTodos(fetchedTodos);
     } catch (e) {
       setState(() {
         isLoading = false; // En caso de error, finaliza la carga
@@ -86,34 +79,31 @@ class _TodoListScreenState extends State<TodoListScreen> {
     }
   }
 
-  void _handleWebSocketMessage(String message) {
-    // Parsear el mensaje del WebSocket (dependiendo del formato, aquí se asume que es JSON)
-    final Map<String, dynamic> data = jsonDecode(message);
+  // Guarda los todos en SharedPreferences
+  Future<void> _cacheTodos(List<Todo> todosToCache) async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> todosJson = todosToCache
+        .map((todo) => jsonEncode(todo.toJson()))
+        .toList(); // Convierte los todos en cadenas JSON
+    await prefs.setStringList(
+        'todos', todosJson); // Almacena la lista de todos en SharedPreferences
+  }
 
-    // Verificar si el mensaje es sobre una tarea nueva, actualizada o eliminada
-    if (data['action'] == 'add') {
-      // Si es una tarea nueva, agregarla
-      setState(() {
-        todos.add(Todo.fromJson(data['todo']));
-        _filterTodos();
-      });
-    } else if (data['action'] == 'update') {
-      // Si es una tarea actualizada, actualizar el estado de la tarea
-      setState(() {
-        Todo updatedTodo = Todo.fromJson(data['todo']);
-        int index = todos.indexWhere((todo) => todo.id == updatedTodo.id);
-        if (index != -1) {
-          todos[index] = updatedTodo;
-          _filterTodos();
-        }
-      });
-    } else if (data['action'] == 'delete') {
-      // Si es una tarea eliminada, eliminarla de la lista
-      setState(() {
-        todos.removeWhere((todo) => todo.id == data['id']);
-        _filterTodos();
-      });
+  // Recupera los todos desde SharedPreferences
+  Future<List<Todo>> _getCachedTodos() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String>? todosJson =
+        prefs.getStringList('todos'); // Recupera la lista de cadenas JSON
+
+    if (todosJson == null) {
+      return []; // Si no hay datos en caché, retorna una lista vacía
     }
+
+    return todosJson.map((todoString) {
+      final Map<String, dynamic> todoMap =
+          jsonDecode(todoString); // Convierte la cadena JSON de nuevo a Map
+      return Todo.fromJson(todoMap); // Crea el objeto Todo desde el Map
+    }).toList();
   }
 
   void _refreshTodos() {
@@ -134,104 +124,128 @@ class _TodoListScreenState extends State<TodoListScreen> {
     }
   }
 
-  void _showAddTodoDialog(Todo? todo) {
-    final TextEditingController titleController = TextEditingController(text: todo?.title ?? '');
-    final TextEditingController descriptionController =
-        TextEditingController(text: todo?.description ?? '');
+void _showAddTodoDialog(Todo? todo) {
+  final TextEditingController titleController = TextEditingController(text: todo?.title ?? '');
+  final TextEditingController descriptionController = TextEditingController(text: todo?.description ?? '');
 
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Container(
-            width: 400, // Aumentar el ancho del diálogo
-            padding: const EdgeInsets.all(20), // Espaciado interno
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  todo == null ? 'Nueva Tarea' : 'Editar Tarea',
-                  style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.bold), // Título más grande
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Container(
+          width: 400, // Aumentar el ancho del diálogo
+          padding: const EdgeInsets.all(20), // Espaciado interno
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                todo == null ? 'Nueva Tarea' : 'Editar Tarea',
+                style: const TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.bold), // Título más grande
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: titleController,
+                decoration: const InputDecoration(
+                  labelText: 'Título',
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
                 ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Título',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
-                  ),
+              ),
+              const SizedBox(height: 16), // Espacio entre los campos
+              TextField(
+                controller: descriptionController,
+                decoration: const InputDecoration(
+                  labelText: 'Descripción',
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
                 ),
-                const SizedBox(height: 16), // Espacio entre los campos
-                TextField(
-                  controller: descriptionController,
-                  decoration: const InputDecoration(
-                    labelText: 'Descripción',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
-                  ),
-                  maxLines: 3, // Permite más líneas para la descripción
-                ),
-                const SizedBox(height: 20), // Espacio adicional antes de los botones
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () async {
-                        // Validar que al menos uno de los campos no esté vacío
-                        if (titleController.text.isNotEmpty ||
-                            descriptionController.text.isNotEmpty) {
-                          if (todo == null) {
-                            // Crear nuevo todo
-                            final newTodo = Todo(
-                              id: 0, // ID será asignado por el servidor
-                              title: titleController.text,
-                              description: descriptionController.text,
-                              completed: false,
-                            );
-                            await apiService.addTodo(newTodo.title, newTodo.description);
-                          } else {
-                            // Editar todo existente
-                            final updatedTodo = Todo(
-                              id: todo.id,
-                              title: titleController.text,
-                              description: descriptionController.text,
-                              completed: todo.completed,
-                            );
-                            await apiService.updateTodoID(
-                                updatedTodo); // Supón que tienes un método para actualizar
-                          }
-                          _refreshTodos(); // Recargar todos
-                          Navigator.of(context).pop(); // Cierra el diálogo
+                maxLines: 3, // Permite más líneas para la descripción
+              ),
+              const SizedBox(height: 20), // Espacio adicional antes de los botones
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () async {
+                      if (titleController.text.isNotEmpty || descriptionController.text.isNotEmpty) {
+                        final newTodo = Todo(
+                          id: 0, // ID será asignado por el servidor
+                          title: titleController.text,
+                          description: descriptionController.text,
+                          completed: false,
+                        );
+
+                        if (isInternetAvailable) {
+                          // Si hay internet, crear la tarea en la API
+                          await apiService.addTodo(newTodo.title, newTodo.description);
                         } else {
-                          // Si ambos campos están vacíos, muestra un mensaje de error
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Debes completar al menos un campo.')),
-                          );
+                          // Si no hay internet, guarda la tarea localmente
+                          await _saveTodoTemporarily(newTodo);
                         }
-                      },
-                      child: const Text('Guardar'),
-                    ),
-                    const SizedBox(width: 8),
-                    TextButton(
-                      onPressed: () {
+
+                        _refreshTodos(); // Recargar todos
                         Navigator.of(context).pop(); // Cierra el diálogo
-                      },
-                      child: const Text('Cancelar'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Debes completar al menos un campo.')),
+                        );
+                      }
+                    },
+                    child: const Text('Guardar'),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop(); // Cierra el diálogo
+                    },
+                    child: const Text('Cancelar'),
+                  ),
+                ],
+              ),
+            ],
           ),
-        );
-      },
-    );
+        ),
+      );
+    },
+  );
+}
+// Guarda la tarea localmente cuando no hay internet
+Future<void> _saveTodoTemporarily(Todo todo) async {
+  final prefs = await SharedPreferences.getInstance();
+  final List<String> todosJson = prefs.getStringList('offlineTodos') ?? [];
+  
+  todosJson.add(jsonEncode(todo.toJson())); // Agrega la tarea a la lista local
+  await prefs.setStringList('offlineTodos', todosJson); // Guarda la lista actualizada
+}
+
+// Crea las tareas guardadas temporalmente cuando se recupera la conexión
+Future<void> _syncOfflineTodos() async {
+  final prefs = await SharedPreferences.getInstance();
+  final List<String> todosJson = prefs.getStringList('offlineTodos') ?? [];
+  
+  if (todosJson.isNotEmpty) {
+    for (var todoJson in todosJson) {
+      final Map<String, dynamic> todoMap = jsonDecode(todoJson);
+      final Todo todo = Todo.fromJson(todoMap);
+      
+      try {
+        // Intenta crear la tarea en la API
+        await apiService.addTodo(todo.title, todo.description);
+        // Si se crea correctamente, elimina la tarea localmente
+        todosJson.remove(todoJson);
+        await prefs.setStringList('offlineTodos', todosJson);
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error sincronizando tarea: $e');
+        }
+      }
+    }
   }
+}
 
   void _filterTodos() {
     if (filterValue == 'completed') {
@@ -303,54 +317,58 @@ class _TodoListScreenState extends State<TodoListScreen> {
                                 });
                               },
                             ),
-                            ElevatedButton.icon(
-                              onPressed: () {
-                                _showAddTodoDialog(null); // Abre el diálogo para añadir todo
-                              },
-                              style: ElevatedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                backgroundColor: Colors.blueAccent,
-                              ),
-                              icon: const Icon(Icons.add),
-                              label: const Text('Agregar Tarea'),
+                            ElevatedButton(
+                              clipBehavior: Clip.hardEdge,
+                              onPressed: () => _showAddTodoDialog(null),
+                              child: const Text("Crear nueva tarea"),
                             ),
                           ],
                         ),
                       ),
                     ),
                     Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(15),
-                        child: ResponsiveGridList(
-                          desiredItemWidth: 350,
-                          minSpacing: 10,
-                          children: filteredTodos.asMap().entries.map((entry) {
-                            int index = entry.key; // Índice de la lista filtrada
-                            Todo todo = entry.value; // El elemento actual (todo)
+                      // Asegura que la lista ocupe el espacio disponible
+                      child: ListView(
+                        children: [
+                          ResponsiveGridRow(
+                            rowSegments: 12,
+                            children: filteredTodos.asMap().entries.map((entry) {
+                              final index = entry.key; // Obtiene el índice
+                              final todo = entry.value; // Obtiene el elemento de todo
 
-                            return TodoItem(
-                              todo: todo,
-                              onDelete: () =>
-                                  _deleteTodo(todo.id), // Llama a la función de eliminación
-                              onUpdate: (value) {
-                                setState(() {
-                                  // Encuentra el índice del todo en la lista completa 'todos'
-                                  int originalIndex = todos.indexWhere((t) => t.id == todo.id);
-
-                                  // Crea una nueva instancia de Todo con el estado actualizado
-                                  todos[originalIndex] = Todo(
-                                    id: todo.id,
-                                    title: todo.title,
-                                    description: todo.description,
-                                    completed: value, // Cambiar el estado
-                                  );
-
-                                  _filterTodos(); // Refiltra después de actualizar
-                                });
-                              },
-                            );
-                          }).toList(),
-                        ),
+                              return ResponsiveGridCol(
+                                xs: 12,
+                                xl: 4,
+                                md: 6,
+                                lg: 6,
+                                child: GestureDetector(
+                                  onDoubleTap: () => _showAddTodoDialog(
+                                      todo), // Muestra los detalles al hacer doble clic
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(20),
+                                    child: TodoItem(
+                                      todo: todo,
+                                      onDelete: () =>
+                                          _deleteTodo(todo.id), // Llama a la función de eliminación
+                                      onUpdate: (value) {
+                                        // Crea una nueva instancia de Todo con el estado actualizado
+                                        setState(() {
+                                          todos[index] = Todo(
+                                            id: todo.id,
+                                            title: todo.title,
+                                            description: todo.description,
+                                            completed: value, // Cambiar el estado
+                                          );
+                                          _filterTodos(); // Refiltra después de actualizar
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
                       ),
                     ),
                   ],
