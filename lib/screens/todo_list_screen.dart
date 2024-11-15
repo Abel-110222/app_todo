@@ -29,24 +29,32 @@ class _TodoListScreenState extends State<TodoListScreen> {
   @override
   void initState() {
     super.initState();
-    _checkInternetConnection(); // Verificar la conectividad
+    Connectivity().onConnectivityChanged.listen((connectivityResult) {
+      setState(() {
+        isInternetAvailable = connectivityResult != ConnectivityResult.none;
+      });
+      if (isInternetAvailable) {
+        _syncOfflineTodos();
+      }
+      _loadTodos();
+    });
   }
 
-Future<void> _checkInternetConnection() async {
-  var connectivityResult = await (Connectivity().checkConnectivity());
-  setState(() {
-    isInternetAvailable = connectivityResult != ConnectivityResult.none;
+  Future<void> _checkInternetConnection() async {
+    var connectivityResult = await (Connectivity().checkConnectivity());
+    bool previousState = isInternetAvailable;
 
-  });
+    setState(() {
+      isInternetAvailable = connectivityResult != ConnectivityResult.none;
+    });
 
-  if (isInternetAvailable) {
-    // Si hay conexión a internet, sincroniza las tareas pendientes
-    await _syncOfflineTodos();
+    if (isInternetAvailable && !previousState) {
+      // Si la conexión se recupera, sincroniza las tareas offline
+      await _syncOfflineTodos();
+    }
+
+    _loadTodos(); // Cargar todos (de caché o desde la API)
   }
-
-  _loadTodos(); // Cargar todos (de caché o desde la API)
-}
-
 
   Future<void> _loadTodos() async {
     if (!isInternetAvailable) {
@@ -119,144 +127,152 @@ Future<void> _checkInternetConnection() async {
         _filterTodos(); // Refiltra la lista después de eliminar
       });
     } catch (e) {
-      if (kDebugMode) {
-        print('Error deleting todo: $e');
-      }
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error al eliminar la tarea. Intenta nuevamente.')));
     }
   }
 
-void _showAddTodoDialog(Todo? todo) {
-  final TextEditingController titleController = TextEditingController(text: todo?.title ?? '');
-  final TextEditingController descriptionController = TextEditingController(text: todo?.description ?? '');
+  void _showAddTodoDialog(Todo? todo) {
+    final TextEditingController titleController = TextEditingController(text: todo?.title ?? '');
+    final TextEditingController descriptionController =
+        TextEditingController(text: todo?.description ?? '');
 
-  showDialog(
-    context: context,
-    builder: (BuildContext context) {
-      return Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Container(
-          width: 400, // Aumentar el ancho del diálogo
-          padding: const EdgeInsets.all(20), // Espaciado interno
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text( 
-                todo == null ? 'Nueva Tarea' : 'Editar Tarea',
-                style: const TextStyle(
-                    fontSize: 20, fontWeight: FontWeight.bold), // Título más grande
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Título',
-                  border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
-                ),
-              ),
-              const SizedBox(height: 16), // Espacio entre los campos
-              TextField(
-                controller: descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Descripción',
-                  border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
-                ),
-                maxLines: 3, // Permite más líneas para la descripción
-              ),
-              const SizedBox(height: 20), // Espacio adicional antes de los botones
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () async {
-                      if (titleController.text.isNotEmpty || descriptionController.text.isNotEmpty) {
-                        final newTodo = Todo(
-                          id: 0, // ID será asignado por el servidor
-                          title: titleController.text,
-                          description: descriptionController.text,
-                          completed: false,
-                        );
-
-                        if (isInternetAvailable) {
-                          // Si hay internet, crear la tarea en la API
-                          await apiService.addTodo(newTodo.title, newTodo.description);
-                        } else {
-                          // Si no hay internet, guarda la tarea localmente
-                          await _saveTodoTemporarily(newTodo);
-                        }
-
-                        _refreshTodos(); // Recargar todos
-                        Navigator.of(context).pop(); // Cierra el diálogo
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Debes completar al menos un campo.')),
-                        );
-                      }
-                    },
-                    child: const Text('Guardar'),
-                  ),
-                  const SizedBox(width: 8),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop(); // Cierra el diálogo
-                    },
-                    child: const Text('Cancelar'),
-                  ),
-                ],
-              ),
-            ],
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
           ),
-        ),
-      );
-    },
-  );
-}
+          child: Container(
+            width: 400, // Aumentar el ancho del diálogo
+            padding: const EdgeInsets.all(20), // Espaciado interno
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  todo == null ? 'Nueva Tarea' : 'Editar Tarea',
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.bold), // Título más grande
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: titleController,
+                  validator: (value) {
+                    if (value!.isEmpty) {
+                      return 'El título es obligatorio';
+                    }
+                    return null;
+                  },
+                  decoration: const InputDecoration(
+                    labelText: 'Título',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16), // Espacio entre los campos
+                TextField(
+                  controller: descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Descripción',
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+                  ),
+                  maxLines: 3, // Permite más líneas para la descripción
+                ),
+                const SizedBox(height: 20), // Espacio adicional antes de los botones
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () async {
+                        if (titleController.text.isNotEmpty ||
+                            descriptionController.text.isNotEmpty) {
+                          final newTodo = Todo(
+                            id: 0, // ID será asignado por el servidor
+                            title: titleController.text,
+                            description: descriptionController.text,
+                            completed: false,
+                          );
+
+                          if (isInternetAvailable) {
+                            // Si hay internet, crear la tarea en la API
+                            await apiService.addTodo(newTodo.title, newTodo.description);
+                          } else {
+                            // Si no hay internet, guarda la tarea localmente
+                            await _saveTodoTemporarily(newTodo);
+                          }
+
+                          _refreshTodos(); // Recargar todos
+                          Navigator.of(context).pop(); // Cierra el diálogo
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Debes completar al menos un campo.')),
+                          );
+                        }
+                      },
+                      child: const Text('Guardar'),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).pop(); // Cierra el diálogo
+                      },
+                      child: const Text('Cancelar'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
 // Guarda la tarea localmente cuando no hay internet
-Future<void> _saveTodoTemporarily(Todo todo) async {
-  final prefs = await SharedPreferences.getInstance();
-  final List<String> todosJson = prefs.getStringList('offlineTodos') ?? [];
-  
-  todosJson.add(jsonEncode(todo.toJson())); // Agrega la tarea a la lista local
-  await prefs.setStringList('offlineTodos', todosJson); // Guarda la lista actualizada
-}
+  Future<void> _saveTodoTemporarily(Todo todo) async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> todosJson = prefs.getStringList('offlineTodos') ?? [];
+
+    todosJson.add(jsonEncode(todo.toJson())); // Agrega la tarea a la lista local
+    await prefs.setStringList('offlineTodos', todosJson); // Guarda la lista actualizada
+  }
 
 // Crea las tareas guardadas temporalmente cuando se recupera la conexión
-Future<void> _syncOfflineTodos() async {
-  final prefs = await SharedPreferences.getInstance();
-  final List<String> todosJson = prefs.getStringList('offlineTodos') ?? [];
-  
-  if (todosJson.isNotEmpty) {
-    for (var todoJson in todosJson) {
-      final Map<String, dynamic> todoMap = jsonDecode(todoJson);
-      final Todo todo = Todo.fromJson(todoMap);
-      
-      try {
-        // Intenta crear la tarea en la API
-        await apiService.addTodo(todo.title, todo.description);
-        // Si se crea correctamente, elimina la tarea localmente
-        todosJson.remove(todoJson);
-        await prefs.setStringList('offlineTodos', todosJson);
-      } catch (e) {
-        if (kDebugMode) {
-          print('Error sincronizando tarea: $e');
+  Future<void> _syncOfflineTodos() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> todosJson = prefs.getStringList('offlineTodos') ?? [];
+
+    if (todosJson.isNotEmpty) {
+      for (var todoJson in todosJson) {
+        final Map<String, dynamic> todoMap = jsonDecode(todoJson);
+        final Todo todo = Todo.fromJson(todoMap);
+
+        try {
+          // Intenta crear la tarea en la API
+          await apiService.addTodo(todo.title, todo.description);
+          // Si se crea correctamente, elimina la tarea localmente
+          todosJson.remove(todoJson);
+          await prefs.setStringList('offlineTodos', todosJson);
+        } catch (e) {
+          if (kDebugMode) {
+            print('Error sincronizando tarea: $e');
+          }
         }
       }
     }
   }
-}
 
   void _filterTodos() {
-    if (filterValue == 'completed') {
-      filteredTodos = todos.where((todo) => todo.completed).toList(); // Filtra por terminadas
-    } else if (filterValue == 'incomplete') {
-      filteredTodos = todos.where((todo) => !todo.completed).toList(); // Filtra por no terminadas
-    } else {
-      filteredTodos = todos.toList() // Muestra todos
-        ..sort((a, b) => a.id.compareTo(b.id)); // Ordena por ID de menor a mayor
-    }
+    setState(() {
+      if (filterValue == 'completed') {
+        filteredTodos = todos.where((todo) => todo.completed).toList();
+      } else if (filterValue == 'incomplete') {
+        filteredTodos = todos.where((todo) => !todo.completed).toList();
+      } else {
+        filteredTodos = todos;
+      }
+    });
   }
 
   @override
@@ -264,12 +280,17 @@ Future<void> _syncOfflineTodos() async {
     return Scaffold(
       appBar: AppBar(
         centerTitle: true,
-        title: const Row(
+        title: Row(
           children: [
-            SizedBox(width: 30),
+            const SizedBox(width: 30),
             Text(
               'TO DO - PWA',
               style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
+            ),
+            Spacer(),
+            Text(
+              isInternetAvailable ? 'Online' : 'Offline',
+              style: TextStyle(color: isInternetAvailable ? Colors.green : Colors.red),
             ),
           ],
         ),
