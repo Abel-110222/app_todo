@@ -90,13 +90,12 @@ class _TodoListScreenState extends State<TodoListScreen> {
 
   void _handleWebSocketMessage(String message) {
     try {
-      // Intentar parsear el mensaje como JSON
       final Map<String, dynamic> data = jsonDecode(message);
 
       if (data['action'] == 'add') {
         setState(() {
           todos.add(Todo.fromJson(data['todo']));
-          _filterTodos();
+          _filterTodos(); // Filtra después de añadir
         });
       } else if (data['action'] == 'update') {
         setState(() {
@@ -104,17 +103,16 @@ class _TodoListScreenState extends State<TodoListScreen> {
           int index = todos.indexWhere((todo) => todo.id == updatedTodo.id);
           if (index != -1) {
             todos[index] = updatedTodo;
-            _filterTodos();
+            _filterTodos(); // Filtra después de actualizar
           }
         });
       } else if (data['action'] == 'delete') {
         setState(() {
           todos.removeWhere((todo) => todo.id == data['id']);
-          _filterTodos();
+          _filterTodos(); // Filtra después de eliminar
         });
       }
     } catch (e) {
-      // Si el mensaje no es un JSON, imprimir el error o manejarlo
       print('Mensaje recibido no es JSON: $message');
     }
   }
@@ -249,13 +247,15 @@ class _TodoListScreenState extends State<TodoListScreen> {
 
   void _filterTodos() {
     if (filterValue == 'completed') {
-      filteredTodos = todos.where((todo) => todo.completed).toList(); // Filtra por terminadas
+      filteredTodos = todos.where((todo) => todo.completed).toList();
     } else if (filterValue == 'incomplete') {
-      filteredTodos = todos.where((todo) => !todo.completed).toList(); // Filtra por no terminadas
+      filteredTodos = todos.where((todo) => !todo.completed).toList();
     } else {
-      filteredTodos = todos.toList() // Muestra todos
-        ..sort((a, b) => a.id.compareTo(b.id)); // Ordena por ID de menor a mayor
+      filteredTodos = List.from(todos); // Copia la lista original sin filtrar
     }
+    setState(() {
+      filteredTodos = filteredTodos; // Refresca la vista con la lista filtrada
+    });
   }
 
   @override
@@ -303,31 +303,30 @@ class _TodoListScreenState extends State<TodoListScreen> {
                           children: [
                             // DropdownButton en la izquierda
                             Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: DropdownButton<String>(
-                                value: filterValue,
-                                items: const [
-                                  DropdownMenuItem(
-                                    value: 'all',
-                                    child: Text('Todas las tareas'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 'completed',
-                                    child: Text('Tareas terminadas'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 'incomplete',
-                                    child: Text('Tareas no terminadas'),
-                                  ),
-                                ],
-                                onChanged: (value) {
-                                  setState(() {
-                                    filterValue = value!;
-                                  });
-                                  _filterTodos();
-                                },
-                              ),
-                            ),
+                                padding: const EdgeInsets.all(8.0),
+                                child: DropdownButton<String>(
+                                  value: filterValue,
+                                  items: const [
+                                    DropdownMenuItem(
+                                      value: 'all',
+                                      child: Text('Todas las tareas'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'completed',
+                                      child: Text('Tareas terminadas'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'incomplete',
+                                      child: Text('Tareas no terminadas'),
+                                    ),
+                                  ],
+                                  onChanged: (value) {
+                                    setState(() {
+                                      filterValue = value!;
+                                    });
+                                    _filterTodos(); // Actualiza la lista filtrada
+                                  },
+                                )),
 
                             // Botón "Agregar Tarea" en la derecha
                             Padding(
