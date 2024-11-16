@@ -3,7 +3,6 @@ import 'screens/todo_list_screen.dart';
 
 void main() {
   runApp(const MyApp());
-  
 }
 
 class MyApp extends StatelessWidget {
@@ -14,7 +13,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'To-Do App v3',
       theme: ThemeData(
-        brightness: Brightness.dark, // O Brightness.light para modo claro
+        brightness: Brightness.light, // O Brightness.light para modo claro
         primarySwatch: Colors.blue,
         hintColor: Colors.blue, // Color de acento
         visualDensity: VisualDensity.adaptivePlatformDensity,

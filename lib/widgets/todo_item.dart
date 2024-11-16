@@ -5,7 +5,7 @@ import 'package:todo_flutter_pwa/servies/api_service.dart';
 import '../models/todo.dart';
 
 class TodoItem extends StatefulWidget {
-  final Todo todo;
+  final Todo todo; 
   final VoidCallback onDelete;
   final Function(bool value) onUpdate;
 
@@ -40,6 +40,8 @@ class _TodoItemState extends State<TodoItem> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: Colors.grey),
           borderRadius: BorderRadius.circular(8),
           boxShadow: [
             BoxShadow(

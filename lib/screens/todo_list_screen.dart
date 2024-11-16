@@ -5,9 +5,11 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:responsive_grid/responsive_grid.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:todo_flutter_pwa/servies/api_service.dart';
-import 'package:connectivity_plus/connectivity_plus.dart'; // Paquete para verificar la conectividad
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/status.dart' as status;
+import 'package:elegant_notification/elegant_notification.dart';
+
 import '../models/todo.dart';
 import '../widgets/todo_item.dart';
 
@@ -24,50 +26,48 @@ class _TodoListScreenState extends State<TodoListScreen> {
   List<Todo> filteredTodos = [];
   bool isLoading = true; // Para controlar el estado de carga
   String filterValue = 'all'; // Valor por defecto del filtro
-  bool isInternetAvailable = true;
+
+  late WebSocketChannel channel; // Canal de WebSocket
 
   @override
   void initState() {
     super.initState();
-    Connectivity().onConnectivityChanged.listen((connectivityResult) {
-      setState(() {
-        isInternetAvailable = connectivityResult != ConnectivityResult.none;
-      });
-      if (isInternetAvailable) {
-        _syncOfflineTodos();
-      }
-      _loadTodos();
-    });
+    _loadTodos();
+
+    // Inicializa el canal WebSocket
+    channel = WebSocketChannel.connect(
+      Uri.parse(
+          'wss://apitodo-production-4845.up.railway.app/todo_updates'), // URL del servidor WebSocket
+    );
+
+    channel.stream.listen(
+      (message) {
+        _handleWebSocketMessage(message);
+      },
+      onError: (error) {
+        // Handle error and possibly retry connection
+        if (kDebugMode) {
+          print('WebSocket error: $error');
+        }
+      },
+      onDone: () {
+        // Handle when the WebSocket connection is closed
+        if (kDebugMode) {
+          print('WebSocket connection closed, attempting reconnection...');
+        }
+        // Optionally, add a reconnection attempt logic here
+      },
+    );
   }
 
-  Future<void> _checkInternetConnection() async {
-    var connectivityResult = await (Connectivity().checkConnectivity());
-    bool previousState = isInternetAvailable;
-
-    setState(() {
-      isInternetAvailable = connectivityResult != ConnectivityResult.none;
-    });
-
-    if (isInternetAvailable && !previousState) {
-      // Si la conexión se recupera, sincroniza las tareas offline
-      await _syncOfflineTodos();
-    }
-
-    _loadTodos(); // Cargar todos (de caché o desde la API)
+  @override
+  void dispose() {
+    // Cierra el canal cuando el widget se destruye
+    channel.sink.close(status.goingAway);
+    super.dispose();
   }
 
   Future<void> _loadTodos() async {
-    if (!isInternetAvailable) {
-      // Si no hay internet, cargamos los todos desde el caché (puedes implementar tu propia lógica de cacheo)
-      final cachedTodos = await _getCachedTodos();
-      setState(() {
-        todos = cachedTodos;
-        filteredTodos = todos;
-        isLoading = false;
-      });
-      return;
-    }
-
     setState(() {
       isLoading = true; // Inicia la carga
     });
@@ -79,8 +79,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
         filteredTodos = todos; // Inicialmente muestra todos los todos
         isLoading = false; // Finaliza la carga
       });
-      // Guardamos los todos en caché después de obtenerlos del servidor
-      _cacheTodos(fetchedTodos);
+      _filterTodos();
     } catch (e) {
       setState(() {
         isLoading = false; // En caso de error, finaliza la carga
@@ -88,49 +87,59 @@ class _TodoListScreenState extends State<TodoListScreen> {
     }
   }
 
-  // Guarda los todos en SharedPreferences
-  Future<void> _cacheTodos(List<Todo> todosToCache) async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> todosJson = todosToCache
-        .map((todo) => jsonEncode(todo.toJson()))
-        .toList(); // Convierte los todos en cadenas JSON
-    await prefs.setStringList(
-        'todos', todosJson); // Almacena la lista de todos en SharedPreferences
-  }
+  void _handleWebSocketMessage(String message) {
+    try {
+      // Intentar parsear el mensaje como JSON
+      final Map<String, dynamic> data = jsonDecode(message);
 
-  // Recupera los todos desde SharedPreferences
-  Future<List<Todo>> _getCachedTodos() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String>? todosJson =
-        prefs.getStringList('todos'); // Recupera la lista de cadenas JSON
-
-    if (todosJson == null) {
-      return []; // Si no hay datos en caché, retorna una lista vacía
+      if (data['action'] == 'add') {
+        setState(() {
+          todos.add(Todo.fromJson(data['todo']));
+          _filterTodos();
+        });
+      } else if (data['action'] == 'update') {
+        setState(() {
+          Todo updatedTodo = Todo.fromJson(data['todo']);
+          int index = todos.indexWhere((todo) => todo.id == updatedTodo.id);
+          if (index != -1) {
+            todos[index] = updatedTodo;
+            _filterTodos();
+          }
+        });
+      } else if (data['action'] == 'delete') {
+        setState(() {
+          todos.removeWhere((todo) => todo.id == data['id']);
+          _filterTodos();
+        });
+      }
+    } catch (e) {
+      // Si el mensaje no es un JSON, imprimir el error o manejarlo
+      print('Mensaje recibido no es JSON: $message');
     }
-
-    return todosJson.map((todoString) {
-      final Map<String, dynamic> todoMap =
-          jsonDecode(todoString); // Convierte la cadena JSON de nuevo a Map
-      return Todo.fromJson(todoMap); // Crea el objeto Todo desde el Map
-    }).toList();
   }
 
   void _refreshTodos() {
     _loadTodos(); // Recargar los todos
   }
 
-  void _deleteTodo(int id) async {
-    try {
-      await apiService.deleteTodo(id);
-      setState(() {
-        todos.removeWhere((todo) => todo.id == id);
-        _filterTodos(); // Refiltra la lista después de eliminar
-      });
-    } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error al eliminar la tarea. Intenta nuevamente.')));
+ void _deleteTodo(int id) async {
+  try {
+    await apiService.deleteTodo(id);
+    setState(() {
+      todos.removeWhere((todo) => todo.id == id);
+      _filterTodos();
+    });
+    ElegantNotification.error(
+      title: const Text("Tarea eliminada"),
+      description: const Text("La tarea se ha eliminado correctamente."),
+    ).show(context);
+  } catch (e) {
+    if (kDebugMode) {
+      print('Error deleting todo: $e');
     }
   }
+}
+
 
   void _showAddTodoDialog(Todo? todo) {
     final TextEditingController titleController = TextEditingController(text: todo?.title ?? '');
@@ -156,17 +165,12 @@ class _TodoListScreenState extends State<TodoListScreen> {
                       fontSize: 20, fontWeight: FontWeight.bold), // Título más grande
                 ),
                 const SizedBox(height: 16),
-                TextFormField(
+                TextField(
                   controller: titleController,
-                  validator: (value) {
-                    if (value!.isEmpty) {
-                      return 'El título es obligatorio para la tarea';
-                    }
-                    return null;
-                  },
                   decoration: const InputDecoration(
                     labelText: 'Título',
                     border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
                   ),
                 ),
                 const SizedBox(height: 16), // Espacio entre los campos
@@ -185,26 +189,40 @@ class _TodoListScreenState extends State<TodoListScreen> {
                   children: [
                     TextButton(
                       onPressed: () async {
+                        // Validar que al menos uno de los campos no esté vacío
                         if (titleController.text.isNotEmpty ||
                             descriptionController.text.isNotEmpty) {
-                          final newTodo = Todo(
-                            id: 0, // ID será asignado por el servidor
-                            title: titleController.text,
-                            description: descriptionController.text,
-                            completed: false,
-                          );
-
-                          if (isInternetAvailable) {
-                            // Si hay internet, crear la tarea en la API
+                          if (todo == null) {
+                            // Crear nueva tarea
+                            final newTodo = Todo(
+                              id: 0, // ID asignado por el servidor
+                              title: titleController.text,
+                              description: descriptionController.text,
+                              completed: false,
+                            );
                             await apiService.addTodo(newTodo.title, newTodo.description);
+                            ElegantNotification.success(
+                              title: const Text("Tarea creada"),
+                              description: const Text("La tarea se ha creado exitosamente."),
+                            ).show(context);
                           } else {
-                            // Si no hay internet, guarda la tarea localmente
-                            await _saveTodoTemporarily(newTodo);
+                            // Editar tarea existente
+                            final updatedTodo = Todo(
+                              id: todo.id,
+                              title: titleController.text,
+                              description: descriptionController.text,
+                              completed: todo.completed,
+                            );
+                            await apiService.updateTodoID(updatedTodo);
+                            ElegantNotification.info(
+                              title: const Text("Tarea actualizada"),
+                              description: const Text("La tarea se ha actualizado correctamente."),
+                            ).show(context);
                           }
-
-                          _refreshTodos(); // Recargar todos
+                          _refreshTodos(); // Recargar tareas
                           Navigator.of(context).pop(); // Cierra el diálogo
                         } else {
+                          // Si ambos campos están vacíos, muestra un mensaje de error
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('Debes completar al menos un campo.')),
                           );
@@ -228,49 +246,16 @@ class _TodoListScreenState extends State<TodoListScreen> {
       },
     );
   }
-// Guarda la tarea localmente cuando no hay internet
-  Future<void> _saveTodoTemporarily(Todo todo) async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> todosJson = prefs.getStringList('offlineTodos') ?? [];
-
-    todosJson.add(jsonEncode(todo.toJson())); // Agrega la tarea a la lista local
-    await prefs.setStringList('offlineTodos', todosJson); // Guarda la lista actualizada
-  }
-
-// Crea las tareas guardadas temporalmente cuando se recupera la conexión
-  Future<void> _syncOfflineTodos() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> todosJson = prefs.getStringList('offlineTodos') ?? [];
-
-    if (todosJson.isNotEmpty) {
-      for (var todoJson in todosJson) {
-        final Map<String, dynamic> todoMap = jsonDecode(todoJson);
-        final Todo todo = Todo.fromJson(todoMap);
-
-        try {
-          // Intenta crear la tarea en la API
-          await apiService.addTodo(todo.title, todo.description);
-          // Si se crea correctamente, elimina la tarea localmente
-          todosJson.remove(todoJson);
-          await prefs.setStringList('offlineTodos', todosJson);
-        } catch (e) {
-          // Si ocurre un error, ignora la tarea
-          
-        }
-      }
-    }
-  }
 
   void _filterTodos() {
-    setState(() {
-      if (filterValue == 'completed') {
-        filteredTodos = todos.where((todo) => todo.completed).toList();
-      } else if (filterValue == 'incomplete') {
-        filteredTodos = todos.where((todo) => !todo.completed).toList();
-      } else {
-        filteredTodos = todos;
-      }
-    });
+    if (filterValue == 'completed') {
+      filteredTodos = todos.where((todo) => todo.completed).toList(); // Filtra por terminadas
+    } else if (filterValue == 'incomplete') {
+      filteredTodos = todos.where((todo) => !todo.completed).toList(); // Filtra por no terminadas
+    } else {
+      filteredTodos = todos.toList() // Muestra todos
+        ..sort((a, b) => a.id.compareTo(b.id)); // Ordena por ID de menor a mayor
+    }
   }
 
   @override
@@ -278,17 +263,12 @@ class _TodoListScreenState extends State<TodoListScreen> {
     return Scaffold(
       appBar: AppBar(
         centerTitle: true,
-        title: Row(
+        title: const Row(
           children: [
-            const SizedBox(width: 30),
+            SizedBox(width: 30),
             Text(
-              'TO DO - PWA v3',
+              'TO DO - PWA',
               style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
-            ),
-            Spacer(),
-            Text(
-              isInternetAvailable ? 'Online' : 'Offline',
-              style: TextStyle(color: isInternetAvailable ? Colors.green : Colors.red),
             ),
           ],
         ),
@@ -337,58 +317,54 @@ class _TodoListScreenState extends State<TodoListScreen> {
                                 });
                               },
                             ),
-                            ElevatedButton(
-                              clipBehavior: Clip.hardEdge,
-                              onPressed: () => _showAddTodoDialog(null),
-                              child: const Text("Crear nueva tarea"),
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                _showAddTodoDialog(null); // Abre el diálogo para añadir todo
+                              },
+                              style: ElevatedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                backgroundColor: Colors.blueAccent,
+                              ),
+                              icon: const Icon(Icons.add),
+                              label: const Text('Agregar Tarea'),
                             ),
                           ],
                         ),
                       ),
                     ),
                     Expanded(
-                      // Asegura que la lista ocupe el espacio disponible
-                      child: ListView(
-                        children: [
-                          ResponsiveGridRow(
-                            rowSegments: 12,
-                            children: filteredTodos.asMap().entries.map((entry) {
-                              final index = entry.key; // Obtiene el índice
-                              final todo = entry.value; // Obtiene el elemento de todo
+                      child: Padding(
+                        padding: const EdgeInsets.all(15),
+                        child: ResponsiveGridList(
+                          desiredItemWidth: 350,
+                          minSpacing: 10,
+                          children: filteredTodos.asMap().entries.map((entry) {
+                            int index = entry.key; // Índice de la lista filtrada
+                            Todo todo = entry.value; // El elemento actual (todo)
 
-                              return ResponsiveGridCol(
-                                xs: 12,
-                                xl: 4,
-                                md: 6,
-                                lg: 6,
-                                child: GestureDetector(
-                                  onDoubleTap: () => _showAddTodoDialog(
-                                      todo), // Muestra los detalles al hacer doble clic
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(20),
-                                    child: TodoItem(
-                                      todo: todo,
-                                      onDelete: () =>
-                                          _deleteTodo(todo.id), // Llama a la función de eliminación
-                                      onUpdate: (value) {
-                                        // Crea una nueva instancia de Todo con el estado actualizado
-                                        setState(() {
-                                          todos[index] = Todo(
-                                            id: todo.id,
-                                            title: todo.title,
-                                            description: todo.description,
-                                            completed: value, // Cambiar el estado
-                                          );
-                                          _filterTodos(); // Refiltra después de actualizar
-                                        });
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ],
+                            return TodoItem(
+                              todo: todo,
+                              onDelete: () =>
+                                  _deleteTodo(todo.id), // Llama a la función de eliminación
+                              onUpdate: (value) {
+                                setState(() {
+                                  // Encuentra el índice del todo en la lista completa 'todos'
+                                  int originalIndex = todos.indexWhere((t) => t.id == todo.id);
+
+                                  // Crea una nueva instancia de Todo con el estado actualizado
+                                  todos[originalIndex] = Todo(
+                                    id: todo.id,
+                                    title: todo.title,
+                                    description: todo.description,
+                                    completed: value, // Cambiar el estado
+                                  );
+
+                                  _filterTodos(); // Refiltra después de actualizar
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
                       ),
                     ),
                   ],
