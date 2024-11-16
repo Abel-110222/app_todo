@@ -288,124 +288,129 @@ class _TodoListScreenState extends State<TodoListScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        // Filtro y botón de agregar tarea en un solo Row
-                        Row(
-                          mainAxisAlignment:
-                              MainAxisAlignment.spaceBetween, // Espaciado entre los elementos
-                          children: [
-                            // DropdownButton en la izquierda
-                            Padding(
-                                padding: const EdgeInsets.all(8.0),
-                                child: DropdownButton<String>(
-                                  value: filterValue,
-                                  items: const [
-                                    DropdownMenuItem(
-                                      value: 'all',
-                                      child: Text('Todas las tareas'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'completed',
-                                      child: Text('Tareas terminadas'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'incomplete',
-                                      child: Text('Tareas no terminadas'),
-                                    ),
-                                  ],
-                                  onChanged: (value) {
-                                    setState(() {
-                                      filterValue = value!;
-                                    });
-                                    _filterTodos(); // Actualiza la lista filtrada
-                                  },
-                                )),
+      body: Padding(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 2), // Espaciado interno (8.0),
+        child: Column(
+          children: [
+            isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          // Filtro y botón de agregar tarea en un solo Row
+                          Row(
+                            mainAxisAlignment:
+                                MainAxisAlignment.spaceBetween, // Espaciado entre los elementos
+                            children: [
+                              // DropdownButton en la izquierda
+                              Padding(
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: DropdownButton<String>(
+                                    value: filterValue,
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: 'all',
+                                        child: Text('Todas las tareas'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'completed',
+                                        child: Text('Tareas terminadas'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'incomplete',
+                                        child: Text('Tareas no terminadas'),
+                                      ),
+                                    ],
+                                    onChanged: (value) {
+                                      setState(() {
+                                        filterValue = value!;
+                                      });
+                                      _filterTodos(); // Actualiza la lista filtrada
+                                    },
+                                  )),
 
-                            // Botón "Agregar Tarea" en la derecha
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: TextButton(
-                                onPressed: () => _showAddTodoDialog(null),
-                                child: const Text("Agregar Tarea"),
-                              ),
-                            ),
-                          ],
-                        ),
-                        // Lista de tareas
-                        ResponsiveGridRow(
-                          children: [
-                            ...paginatedTodos.map(
-                              (todo) => ResponsiveGridCol(
-                                xs: 12,
-                                sm: 6,
-                                md: 6,
-                                child: TodoItem(
-                                  todo: todo,
-                                  onDelete: () => _deleteTodo(todo.id),
-                                  onUpdate: (value) {
-                                    setState(() {
-                                      int originalIndex = todos.indexWhere((t) => t.id == todo.id);
-                                      todos[originalIndex] = Todo(
-                                        id: todo.id,
-                                        title: todo.title,
-                                        description: todo.description,
-                                        completed: value,
-                                      );
-                                      _filterTodos();
-                                    });
-                                  },
-                                  onEdit: (todo) {
-                                    _showAddTodoDialog(todo);
-                                  },
+                              // Botón "Agregar Tarea" en la derecha
+                              Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: TextButton(
+                                  onPressed: () => _showAddTodoDialog(null),
+                                  child: const Text("Agregar Tarea"),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        Divider(color: Colors.grey),
-                      ],
+                            ],
+                          ),
+                          // Lista de tareas
+                          ResponsiveGridRow(
+                            children: [
+                              ...paginatedTodos.map(
+                                (todo) => ResponsiveGridCol(
+                                  xs: 12,
+                                  sm: 6,
+                                  md: 6,
+                                  child: TodoItem(
+                                    todo: todo,
+                                    onDelete: () => _deleteTodo(todo.id),
+                                    onUpdate: (value) {
+                                      setState(() {
+                                        int originalIndex =
+                                            todos.indexWhere((t) => t.id == todo.id);
+                                        todos[originalIndex] = Todo(
+                                          id: todo.id,
+                                          title: todo.title,
+                                          description: todo.description,
+                                          completed: value,
+                                        );
+                                        _filterTodos();
+                                      });
+                                    },
+                                    onEdit: (todo) {
+                                      _showAddTodoDialog(todo);
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          const Divider(color: Colors.grey),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-          // Paginación en la parte inferior
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  onPressed: currentPage > 0
-                      ? () {
-                          setState(() {
-                            currentPage--;
-                          });
-                        }
-                      : null,
-                  icon: const Icon(Icons.arrow_back),
-                ),
-                Text('Página ${currentPage + 1} de $totalPages'),
-                IconButton(
-                  onPressed: currentPage < totalPages - 1
-                      ? () {
-                          setState(() {
-                            currentPage++;
-                          });
-                        }
-                      : null,
-                  icon: const Icon(Icons.arrow_forward),
-                ),
-              ],
+            // Paginación en la parte inferior
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    onPressed: currentPage > 0
+                        ? () {
+                            setState(() {
+                              currentPage--;
+                            });
+                          }
+                        : null,
+                    icon: const Icon(Icons.arrow_back),
+                  ),
+                  Text('Página ${currentPage + 1} de $totalPages'),
+                  IconButton(
+                    onPressed: currentPage < totalPages - 1
+                        ? () {
+                            setState(() {
+                              currentPage++;
+                            });
+                          }
+                        : null,
+                    icon: const Icon(Icons.arrow_forward),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
