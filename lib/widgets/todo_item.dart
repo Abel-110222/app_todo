@@ -29,11 +29,11 @@ class _TodoItemState extends State<TodoItem> {
   @override
   void initState() {
     super.initState();
-    isCompleted = widget.todo.completed;
   }
 
   @override
   Widget build(BuildContext context) {
+    isCompleted = widget.todo.completed;
     final ApiService apiService = ApiService();
 
     return Padding(
