@@ -11,6 +11,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'To-Do App v3',
       theme: ThemeData(
         brightness: Brightness.light, // O Brightness.light para modo claro

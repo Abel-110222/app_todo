@@ -9,7 +9,6 @@ import 'package:todo_flutter_pwa/servies/api_service.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as status;
 import 'package:elegant_notification/elegant_notification.dart';
-
 import '../models/todo.dart';
 import '../widgets/todo_item.dart';
 
@@ -26,8 +25,10 @@ class _TodoListScreenState extends State<TodoListScreen> {
   List<Todo> filteredTodos = [];
   bool isLoading = true; // Para controlar el estado de carga
   String filterValue = 'all'; // Valor por defecto del filtro
-
   late WebSocketChannel channel; // Canal de WebSocket
+
+  int currentPage = 0; // Página actual
+  final int itemsPerPage = 5; // Número de elementos por página
 
   @override
   void initState() {
@@ -122,24 +123,23 @@ class _TodoListScreenState extends State<TodoListScreen> {
     _loadTodos(); // Recargar los todos
   }
 
- void _deleteTodo(int id) async {
-  try {
-    await apiService.deleteTodo(id);
-    setState(() {
-      todos.removeWhere((todo) => todo.id == id);
-      _filterTodos();
-    });
-    ElegantNotification.error(
-      title: const Text("Tarea eliminada"),
-      description: const Text("La tarea se ha eliminado correctamente."),
-    ).show(context);
-  } catch (e) {
-    if (kDebugMode) {
-      print('Error deleting todo: $e');
+  void _deleteTodo(int id) async {
+    try {
+      await apiService.deleteTodo(id);
+      setState(() {
+        todos.removeWhere((todo) => todo.id == id);
+        _filterTodos();
+      });
+      ElegantNotification.error(
+        title: const Text("Tarea eliminada"),
+        description: const Text("La tarea se ha eliminado correctamente."),
+      ).show(context);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error deleting todo: $e');
+      }
     }
   }
-}
-
 
   void _showAddTodoDialog(Todo? todo) {
     final TextEditingController titleController = TextEditingController(text: todo?.title ?? '');
@@ -260,6 +260,10 @@ class _TodoListScreenState extends State<TodoListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    int totalPages = (filteredTodos.length / itemsPerPage).ceil();
+    List<Todo> paginatedTodos =
+        filteredTodos.skip(currentPage * itemsPerPage).take(itemsPerPage).toList();
+
     return Scaffold(
       appBar: AppBar(
         centerTitle: true,
@@ -267,108 +271,143 @@ class _TodoListScreenState extends State<TodoListScreen> {
           children: [
             SizedBox(width: 30),
             Text(
-              'TO DO - PWA',
-              style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
+              'To-Do App',
+              style: TextStyle(fontWeight: FontWeight.bold),
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            onPressed: () {
+              setState(() {
+                filterValue = (filterValue == 'all') ? 'completed' : 'all';
+              });
+              _filterTodos();
+            },
+            icon: const Icon(Icons.filter_alt),
+          ),
+        ],
       ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator()) // Indicador de carga
-          : todos.isEmpty
-              ? const Center(child: Text('No todos found'))
-              : Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 30),
-                      child: SizedBox(
-                        height: 40,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      body: Column(
+        children: [
+          isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        // Filtro y botón de agregar tarea en un solo Row
+                        Row(
+                          mainAxisAlignment:
+                              MainAxisAlignment.spaceBetween, // Espaciado entre los elementos
                           children: [
-                            // Espacio entre el botón y el dropdown
-                            DropdownButton<String>(
-                              hint: const Text('Filter Todos'),
-                              elevation: 16,
-                              style: const TextStyle(color: Colors.blueAccent),
-                              underline: Container(
-                                height: 2,
-                                color: const Color.fromARGB(255, 148, 149, 150),
+                            // DropdownButton en la izquierda
+                            Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: DropdownButton<String>(
+                                value: filterValue,
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: 'all',
+                                    child: Text('Todas las tareas'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'completed',
+                                    child: Text('Tareas terminadas'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'incomplete',
+                                    child: Text('Tareas no terminadas'),
+                                  ),
+                                ],
+                                onChanged: (value) {
+                                  setState(() {
+                                    filterValue = value!;
+                                  });
+                                  _filterTodos();
+                                },
                               ),
-                              value: filterValue,
-                              items: [
-                                const DropdownMenuItem(
-                                  value: 'all',
-                                  child: Text('All'),
-                                ),
-                                const DropdownMenuItem(
-                                  value: 'incomplete',
-                                  child: Text('Not Completed'),
-                                ),
-                                const DropdownMenuItem(
-                                  value: 'completed',
-                                  child: Text('Completed'),
-                                ),
-                              ],
-                              onChanged: (value) {
-                                setState(() {
-                                  filterValue = value!;
-                                  _filterTodos(); // Filtra la lista según el nuevo valor
-                                });
-                              },
                             ),
-                            ElevatedButton.icon(
-                              onPressed: () {
-                                _showAddTodoDialog(null); // Abre el diálogo para añadir todo
-                              },
-                              style: ElevatedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                backgroundColor: Colors.blueAccent,
+
+                            // Botón "Agregar Tarea" en la derecha
+                            Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: TextButton(
+                                onPressed: () => _showAddTodoDialog(null),
+                                child: const Text("Agregar Tarea"),
                               ),
-                              icon: const Icon(Icons.add),
-                              label: const Text('Agregar Tarea'),
                             ),
                           ],
                         ),
-                      ),
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(15),
-                        child: ResponsiveGridList(
-                          desiredItemWidth: 350,
-                          minSpacing: 10,
-                          children: filteredTodos.asMap().entries.map((entry) {
-                            int index = entry.key; // Índice de la lista filtrada
-                            Todo todo = entry.value; // El elemento actual (todo)
-
-                            return TodoItem(
-                              todo: todo,
-                              onDelete: () =>
-                                  _deleteTodo(todo.id), // Llama a la función de eliminación
-                              onUpdate: (value) {
-                                setState(() {
-                                  // Encuentra el índice del todo en la lista completa 'todos'
-                                  int originalIndex = todos.indexWhere((t) => t.id == todo.id);
-
-                                  // Crea una nueva instancia de Todo con el estado actualizado
-                                  todos[originalIndex] = Todo(
-                                    id: todo.id,
-                                    title: todo.title,
-                                    description: todo.description,
-                                    completed: value, // Cambiar el estado
-                                  );
-
-                                  _filterTodos(); // Refiltra después de actualizar
-                                });
-                              },
-                            );
-                          }).toList(),
+                        // Lista de tareas
+                        ResponsiveGridRow(
+                          children: [
+                            ...paginatedTodos.map(
+                              (todo) => ResponsiveGridCol(
+                                xs: 12,
+                                sm: 6,
+                                md: 6,
+                                child: TodoItem(
+                                  todo: todo,
+                                  onDelete: () => _deleteTodo(todo.id),
+                                  onUpdate: (value) {
+                                    setState(() {
+                                      int originalIndex = todos.indexWhere((t) => t.id == todo.id);
+                                      todos[originalIndex] = Todo(
+                                        id: todo.id,
+                                        title: todo.title,
+                                        description: todo.description,
+                                        completed: value,
+                                      );
+                                      _filterTodos();
+                                    });
+                                  },
+                                  onEdit: (todo) {
+                                    _showAddTodoDialog(todo);
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
+                        const SizedBox(height: 20),
+                        Divider(color: Colors.grey),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
+          // Paginación en la parte inferior
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  onPressed: currentPage > 0
+                      ? () {
+                          setState(() {
+                            currentPage--;
+                          });
+                        }
+                      : null,
+                  icon: const Icon(Icons.arrow_back),
+                ),
+                Text('Página ${currentPage + 1} de $totalPages'),
+                IconButton(
+                  onPressed: currentPage < totalPages - 1
+                      ? () {
+                          setState(() {
+                            currentPage++;
+                          });
+                        }
+                      : null,
+                  icon: const Icon(Icons.arrow_forward),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
