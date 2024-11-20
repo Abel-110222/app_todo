@@ -1,16 +1,23 @@
 // ignore_for_file: prefer_const_literals_to_create_immutables, library_private_types_in_public_api, use_build_context_synchronously
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:responsive_grid/responsive_grid.dart';
+import 'package:todo_flutter_pwa/main.dart';
 import 'package:todo_flutter_pwa/servies/api_service.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as status;
 import 'package:elegant_notification/elegant_notification.dart';
 import '../models/todo.dart';
 import '../widgets/todo_item.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:local_notifier/local_notifier.dart'; // Importar la librería aquí si se usa en Windows
+import 'package:window_manager/window_manager.dart'; // Importar window_manager si se usa en Windows
 
 class TodoListScreen extends StatefulWidget {
   const TodoListScreen({super.key});
@@ -29,11 +36,11 @@ class _TodoListScreenState extends State<TodoListScreen> {
 
   int currentPage = 0; // Página actual
   final int itemsPerPage = 5; // Número de elementos por página
-
+  bool hasInternet = true; // Estado inicial de la conexión
   @override
   void initState() {
     super.initState();
-    _loadTodos();
+    _checkConnectivity();
 
     // Inicializa el canal WebSocket
     channel = WebSocketChannel.connect(
@@ -72,6 +79,15 @@ class _TodoListScreenState extends State<TodoListScreen> {
     setState(() {
       isLoading = true; // Inicia la carga
     });
+    // Condición para verificar si la plataforma es Windows
+    if (Platform.isWindows) {
+      // Inicializa el canal WindowManager y local_notifier solo en Windows
+      windowManager.ensureInitialized();
+      localNotifier.setup(
+        appName: 'local_notifier_example',
+        shortcutPolicy: ShortcutPolicy.requireCreate,
+      );
+    }
 
     try {
       List<Todo> fetchedTodos = await apiService.getTodos();
@@ -80,10 +96,92 @@ class _TodoListScreenState extends State<TodoListScreen> {
         filteredTodos = todos; // Inicialmente muestra todos los todos
         isLoading = false; // Finaliza la carga
       });
+      saveStoryHistory(todos);
+      _printTodos();
+
       _filterTodos();
     } catch (e) {
       setState(() {
         isLoading = false; // En caso de error, finaliza la carga
+      });
+    }
+  }
+
+  void _printTodos() async {
+    String todoList = filteredTodos
+        .map((todo) => "Título: ${todo.title}, Descripción: ${todo.description}")
+        .join("\n\n");
+
+    // Imprime la lista en la consola
+    print(todoList);
+
+    // Mostrar SnackBar
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Lista de tareas impresa en la consola'),
+      ),
+    );
+
+    // Configurar notificación
+    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      'channel_id', // ID del canal
+      'Canal de notificaciones', // Nombre del canal
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+
+    const NotificationDetails notificationDetails = NotificationDetails(android: androidDetails);
+
+    // Mostrar notificación nativa
+    await flutterLocalNotificationsPlugin.show(
+      0, // ID de la notificación
+      'Tareas impresas', // Título
+      'La lista de tareas ha sido impresa en la consola', // Cuerpo
+      notificationDetails,
+    );
+  }
+
+  Future<void> saveStoryHistory(List<Todo> storyHistories) async {
+    List<String> jsonHistory = storyHistories.map((story) => jsonEncode(story.toJson())).toList();
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList("todo", jsonHistory);
+  }
+
+  Future<List<Todo>> loadStoryHistory([String key = 'todo']) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String>? jsonHistory = prefs.getStringList(key);
+
+    // Retorna una lista vacía si no hay datos guardados
+    if (jsonHistory == null) {
+      return [];
+    }
+
+    // Decodifica cada cadena JSON a un objeto Todo
+    List<Todo> todos = jsonHistory.map((jsonStr) {
+      Map<String, dynamic> jsonData = jsonDecode(jsonStr);
+      return Todo.fromJson(jsonData);
+    }).toList();
+
+    return todos;
+  }
+
+  Future<void> _checkConnectivity() async {
+    final connectivityResult = await Connectivity().checkConnectivity();
+
+    // Verifica si hay conexión a Internet
+    if (connectivityResult == ConnectivityResult.mobile ||
+        connectivityResult == ConnectivityResult.wifi) {
+      loadStoryHistory();
+
+      setState(() {
+        hasInternet = true;
+      });
+    } else {
+      _loadTodos();
+
+      setState(() {
+        hasInternet = false;
       });
     }
   }
