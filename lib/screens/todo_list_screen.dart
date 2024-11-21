@@ -18,6 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:local_notifier/local_notifier.dart'; // Importar la librería aquí si se usa en Windows
 import 'package:window_manager/window_manager.dart'; // Importar window_manager si se usa en Windows
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class TodoListScreen extends StatefulWidget {
   const TodoListScreen({super.key});
@@ -79,15 +80,26 @@ class _TodoListScreenState extends State<TodoListScreen> {
     setState(() {
       isLoading = true; // Inicia la carga
     });
-    // Condición para verificar si la plataforma es Windows
-    if (Platform.isWindows) {
-      // Inicializa el canal WindowManager y local_notifier solo en Windows
+    if (kIsWeb) {
       windowManager.ensureInitialized();
       localNotifier.setup(
         appName: 'local_notifier_example',
         shortcutPolicy: ShortcutPolicy.requireCreate,
       );
+      // running on the web!
+    } else {
+      print('Not running on the web!');
+      // NOT running on the web! You can check for additional platforms here.
     }
+    // Condición para verificar si la plataforma es Windows
+    // if (Platform.isWindows) {
+    //   // Inicializa el canal WindowManager y local_notifier solo en Windows
+    //   windowManager.ensureInitialized();
+    //   localNotifier.setup(
+    //     appName: 'local_notifier_example',
+    //     shortcutPolicy: ShortcutPolicy.requireCreate,
+    //   );
+    // }
 
     try {
       List<Todo> fetchedTodos = await apiService.getTodos();
