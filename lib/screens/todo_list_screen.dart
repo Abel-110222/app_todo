@@ -80,15 +80,14 @@ class _TodoListScreenState extends State<TodoListScreen> {
     setState(() {
       isLoading = true; // Inicia la carga
     });
+    windowManager.ensureInitialized();
+    localNotifier.setup(
+      appName: 'local_notifier_example',
+      shortcutPolicy: ShortcutPolicy.requireCreate,
+    );
     if (kIsWeb) {
-      windowManager.ensureInitialized();
-      localNotifier.setup(
-        appName: 'local_notifier_example',
-        shortcutPolicy: ShortcutPolicy.requireCreate,
-      );
       // running on the web!
     } else {
-      print('Not running on the web!');
       // NOT running on the web! You can check for additional platforms here.
     }
     // Condición para verificar si la plataforma es Windows
