@@ -361,16 +361,17 @@ class _TodoListScreenState extends State<TodoListScreen> {
                               completed: false,
                             );
                             await apiService.addTodo(newTodo.title, newTodo.description);
+                            if (kIsWeb) {
+                              bool hasPermission = await WebNotification.requestPermission();
 
-                            bool hasPermission = await WebNotification.requestPermission();
-
-                            if (hasPermission) {
-                              WebNotification.showNotification(
-                                'Tarea Creada',
-                                '${newTodo.title} : ${newTodo.description}',
-                              );
-                            } else {
-                              print('El usuario no concedió permiso para notificaciones.');
+                              if (hasPermission) {
+                                WebNotification.showNotification(
+                                  'Tarea Creada',
+                                  '${newTodo.title} : ${newTodo.description}',
+                                );
+                              } else {
+                                print('El usuario no concedió permiso para notificaciones.');
+                              }
                             }
                           } else {
                             // Editar tarea existente
