@@ -2,7 +2,7 @@
 
 import 'dart:convert';
 import 'dart:io';
-
+import 'dart:html';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -19,6 +19,8 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:local_notifier/local_notifier.dart'; // Importar la librería aquí si se usa en Windows
 import 'package:window_manager/window_manager.dart'; // Importar window_manager si se usa en Windows
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_hi_cache/flutter_hi_cache.dart';
+import 'package:hive/hive.dart';
 
 class TodoListScreen extends StatefulWidget {
   const TodoListScreen({super.key});
@@ -43,30 +45,30 @@ class _TodoListScreenState extends State<TodoListScreen> {
     super.initState();
     _checkConnectivity();
 
-    // Inicializa el canal WebSocket
-    channel = WebSocketChannel.connect(
-      Uri.parse(
-          'wss://apitodo-production-4845.up.railway.app/todo_updates'), // URL del servidor WebSocket
-    );
+    // // Inicializa el canal WebSocket
+    // channel = WebSocketChannel.connect(
+    //   Uri.parse(
+    //       'wss://apitodo-production-4845.up.railway.app/todo_updates'), // URL del servidor WebSocket
+    // );
 
-    channel.stream.listen(
-      (message) {
-        _handleWebSocketMessage(message);
-      },
-      onError: (error) {
-        // Handle error and possibly retry connection
-        if (kDebugMode) {
-          print('WebSocket error: $error');
-        }
-      },
-      onDone: () {
-        // Handle when the WebSocket connection is closed
-        if (kDebugMode) {
-          print('WebSocket connection closed, attempting reconnection...');
-        }
-        // Optionally, add a reconnection attempt logic here
-      },
-    );
+    // channel.stream.listen(
+    //   (message) {
+    //     _handleWebSocketMessage(message);
+    //   },
+    //   onError: (error) {
+    //     // Handle error and possibly retry connection
+    //     if (kDebugMode) {
+    //       print('WebSocket error: $error');
+    //     }
+    //   },
+    //   onDone: () {
+    //     // Handle when the WebSocket connection is closed
+    //     if (kDebugMode) {
+    //       print('WebSocket connection closed, attempting reconnection...');
+    //     }
+    //     // Optionally, add a reconnection attempt logic here
+    //   },
+    // );
   }
 
   @override
@@ -80,16 +82,16 @@ class _TodoListScreenState extends State<TodoListScreen> {
     setState(() {
       isLoading = true; // Inicia la carga
     });
-    windowManager.ensureInitialized();
-    localNotifier.setup(
-      appName: 'local_notifier_example',
-      shortcutPolicy: ShortcutPolicy.requireCreate,
-    );
-    if (kIsWeb) {
-      // running on the web!
-    } else {
-      // NOT running on the web! You can check for additional platforms here.
-    }
+    // if (kIsWeb) {
+    //   windowManager.ensureInitialized();
+    //   localNotifier.setup(
+    //     appName: 'local_notifier_example',
+    //     shortcutPolicy: ShortcutPolicy.requireCreate,
+    //   );
+    //   // running on the web!
+    // } else {
+    //   // NOT running on the web! You can check for additional platforms here.
+    // }
     // Condición para verificar si la plataforma es Windows
     // if (Platform.isWindows) {
     //   // Inicializa el canal WindowManager y local_notifier solo en Windows
@@ -103,7 +105,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
     try {
       List<Todo> fetchedTodos = await apiService.getTodos();
       setState(() {
-        todos = fetchedTodos;
+        todos = [...fetchedTodos];
         filteredTodos = todos; // Inicialmente muestra todos los todos
         isLoading = false; // Finaliza la carga
       });
@@ -124,7 +126,6 @@ class _TodoListScreenState extends State<TodoListScreen> {
         .join("\n\n");
 
     // Imprime la lista en la consola
-    print(todoList);
 
     // Mostrar SnackBar
     ScaffoldMessenger.of(context).showSnackBar(
@@ -153,15 +154,68 @@ class _TodoListScreenState extends State<TodoListScreen> {
   }
 
   Future<void> saveStoryHistory(List<Todo> storyHistories) async {
-    List<String> jsonHistory = storyHistories.map((story) => jsonEncode(story.toJson())).toList();
+    List<String> jsonHistory = storyHistories.map((story) {
+      return jsonEncode({
+        'id': story.id,
+        'title': story.title,
+        'description': story.description,
+        'completed': story.completed,
+      });
+    }).toList();
 
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList("todo", jsonHistory);
+    var box = await Hive.openBox('myBox');
+    await box.put('todo', jsonHistory);
   }
+  //   // Método para guardar la lista en SharedPreferences
+  // Future<void> saveStoryHistory(List<StoryHistory> storyHistories) async {
+  //   // Codifica la lista de historias a formato JSON
+  //   List<String> jsonHistory = storyHistories
+  //       .map((story) => jsonEncode({
+  //             'storyMessage': story.storyMessage,
+  //             'choice': story.choice,
+  //             'MessageContent': storyMessage,
+  //             'URL': _uRL,
+  //             'choices': storyChoices,
+  //             'storyData': storyData
+  //           }))
+  //       .toList();
 
+  //   SharedPreferences prefs = await SharedPreferences.getInstance();
+  //   await prefs.setStringList(widget.genre, jsonHistory); // Guarda la lista como StringList
+  // }
+
+//   Future<List<Todo>> loadStoryHistory([String key = 'todo']) async {
+//     SharedPreferences prefs = await SharedPreferences.getInstance();
+//     List<String>? jsonHistory = prefs.getStringList(key);
+
+//     // Retorna una lista vacía si no hay datos guardados
+//     if (jsonHistory == null) {
+//       return [];
+//     }
+
+//     // Decodifica cada cadena JSON a un objeto Todo
+//         for (var jsonStr in jsonHistory) {
+//       Map<String, dynamic> jsonData = jsonDecode(jsonStr);
+
+//       // if (genero.isNotEmpty) {
+//       //   storyHistories.add(
+//       //     StoryHistory(
+//       //       storyMessage: jsonData['storyMessage'],
+//       //       choice: jsonData['choice'],
+//       //     ),
+//       //   );
+//        Todo aux =Todo(id: jsonData['id'], title: jsonData['title'], description: jsonData['description'], completed: jsonData['completed']);
+// todos.add(aux);
+
+//         setState(() {}); // Actualiza el estado de la UI
+//       }
+//     }
+
+//     return ;
+//   }
   Future<List<Todo>> loadStoryHistory([String key = 'todo']) async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String>? jsonHistory = prefs.getStringList(key);
+    var box = await Hive.openBox('myBox');
+    List<dynamic>? jsonHistory = box.get('todo');
 
     // Retorna una lista vacía si no hay datos guardados
     if (jsonHistory == null) {
@@ -171,7 +225,12 @@ class _TodoListScreenState extends State<TodoListScreen> {
     // Decodifica cada cadena JSON a un objeto Todo
     List<Todo> todos = jsonHistory.map((jsonStr) {
       Map<String, dynamic> jsonData = jsonDecode(jsonStr);
-      return Todo.fromJson(jsonData);
+      return Todo(
+        id: jsonData['id'],
+        title: jsonData['title'],
+        description: jsonData['description'],
+        completed: jsonData['completed'],
+      );
     }).toList();
 
     return todos;
@@ -183,8 +242,8 @@ class _TodoListScreenState extends State<TodoListScreen> {
     // Verifica si hay conexión a Internet
     if (connectivityResult == ConnectivityResult.mobile ||
         connectivityResult == ConnectivityResult.wifi) {
-      loadStoryHistory();
-
+      var result = loadStoryHistory();
+      todos = result as List<Todo>;
       setState(() {
         hasInternet = true;
       });
