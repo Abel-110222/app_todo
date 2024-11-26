@@ -2,7 +2,7 @@
 
 import 'dart:convert';
 import 'dart:io';
-import 'dart:html';
+import 'dart:html' as html;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -128,11 +128,6 @@ class _TodoListScreenState extends State<TodoListScreen> {
     // Imprime la lista en la consola
 
     // Mostrar SnackBar
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Lista de tareas impresa en la consola'),
-      ),
-    );
 
     // Configurar notificación
     const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
@@ -249,7 +244,6 @@ class _TodoListScreenState extends State<TodoListScreen> {
       });
     } else {
       _loadTodos();
-
       setState(() {
         hasInternet = false;
       });
@@ -367,10 +361,17 @@ class _TodoListScreenState extends State<TodoListScreen> {
                               completed: false,
                             );
                             await apiService.addTodo(newTodo.title, newTodo.description);
-                            ElegantNotification.success(
-                              title: const Text("Tarea creada"),
-                              description: const Text("La tarea se ha creado exitosamente."),
-                            ).show(context);
+
+                            bool hasPermission = await WebNotification.requestPermission();
+
+                            if (hasPermission) {
+                              WebNotification.showNotification(
+                                'Tarea Creada',
+                                '${newTodo.title} : ${newTodo.description}',
+                              );
+                            } else {
+                              print('El usuario no concedió permiso para notificaciones.');
+                            }
                           } else {
                             // Editar tarea existente
                             final updatedTodo = Todo(
@@ -581,5 +582,23 @@ class _TodoListScreenState extends State<TodoListScreen> {
         ),
       ),
     );
+  }
+}
+
+class WebNotification {
+  static Future<bool> requestPermission() async {
+    final permission = await html.Notification.requestPermission();
+    return permission == 'granted';
+  }
+
+  static void showNotification(String title, String body) {
+    if (html.Notification.permission == 'granted') {
+      html.Notification(
+        title,
+        body: body,
+      );
+    } else {
+      print('Permiso no concedido para notificaciones.');
+    }
   }
 }
